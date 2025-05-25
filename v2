@@ -1,0 +1,195 @@
+import pygame
+import random
+import sys
+import time
+
+pygame.init()
+
+# Configuración
+CELL_SIZE = 130
+COLS = 6
+ROWS = 4
+
+BOARD_WIDTH = CELL_SIZE * COLS
+BOARD_HEIGHT = CELL_SIZE * ROWS
+
+BOARD_X_OFFSET = 200
+BOARD_Y_OFFSET = 150
+
+SCREEN_WIDTH = BOARD_WIDTH + BOARD_X_OFFSET * 2
+SCREEN_HEIGHT = BOARD_HEIGHT + BOARD_Y_OFFSET * 2
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("guilty memories")
+
+# Colores
+BG_COLOR = (20, 20, 20)
+BOX_COLOR = (128, 0, 128)
+GRID_COLOR = (0, 255, 128)
+BOARD_BORDER_COLOR = (255, 255, 255)
+TEXT_COLOR = (255, 255, 255)
+GAME_OVER_COLOR = (255, 50, 50)
+
+font = pygame.font.SysFont("arial", 30)
+big_font = pygame.font.SysFont("arial", 60)
+
+# Cronómetro
+TOTAL_TIME = 600  # 10 minutos
+
+# Generar posiciones del tablero
+def get_grid_positions():
+    return [
+        (BOARD_X_OFFSET + x * CELL_SIZE, BOARD_Y_OFFSET + y * CELL_SIZE)
+        for y in range(ROWS) for x in range(COLS)
+    ]
+
+# Posición aleatoria inicial (fuera del tablero)
+def generate_starting_position():
+    margin = 10
+    side = random.choice(["top", "bottom", "left", "right"])
+    if side == "top":
+        return (
+            random.randint(BOARD_X_OFFSET, BOARD_X_OFFSET + BOARD_WIDTH - CELL_SIZE),
+            random.randint(margin, BOARD_Y_OFFSET - CELL_SIZE - margin)
+        )
+    elif side == "bottom":
+        return (
+            random.randint(BOARD_X_OFFSET, BOARD_X_OFFSET + BOARD_WIDTH - CELL_SIZE),
+            random.randint(BOARD_Y_OFFSET + BOARD_HEIGHT + margin, SCREEN_HEIGHT - CELL_SIZE - margin)
+        )
+    elif side == "left":
+        return (
+            random.randint(margin, BOARD_X_OFFSET - CELL_SIZE - margin),
+            random.randint(BOARD_Y_OFFSET, BOARD_Y_OFFSET + BOARD_HEIGHT - CELL_SIZE)
+        )
+    else:
+        return (
+            random.randint(BOARD_X_OFFSET + BOARD_WIDTH + margin, SCREEN_WIDTH - CELL_SIZE - margin),
+            random.randint(BOARD_Y_OFFSET, BOARD_Y_OFFSET + BOARD_HEIGHT - CELL_SIZE)
+        )
+
+# Iniciar nivel
+def start_level():
+    grid_positions = get_grid_positions()
+    boxes = []
+    original_positions = {}
+    locked_boxes = []
+
+    for _ in range(len(grid_positions)):
+        start_pos = generate_starting_position()
+        rect = pygame.Rect(start_pos[0], start_pos[1], CELL_SIZE, CELL_SIZE)
+        boxes.append(rect)
+        original_positions[id(rect)] = start_pos
+
+    return grid_positions, boxes, original_positions, locked_boxes
+
+# Encajar una pieza
+def snap_to_grid(rect, grid_positions, boxes, original_positions, locked_boxes):
+    x = round((rect.x - BOARD_X_OFFSET) / CELL_SIZE) * CELL_SIZE + BOARD_X_OFFSET
+    y = round((rect.y - BOARD_Y_OFFSET) / CELL_SIZE) * CELL_SIZE + BOARD_Y_OFFSET
+    snapped = (x, y)
+
+    if snapped in grid_positions and snapped not in [r.topleft for r in boxes if r != rect]:
+        rect.topleft = snapped
+        if rect not in locked_boxes:
+            locked_boxes.append(rect)
+    else:
+        rect.topleft = original_positions[id(rect)]
+
+# Iniciar primer nivel
+grid_positions, boxes, original_positions, locked_boxes = start_level()
+selected_box = None
+offset_x = 0
+offset_y = 0
+start_time = time.time()
+
+level = 1
+max_levels = 2
+game_over = False
+game_won = False
+
+# Bucle principal
+run = True
+while run:
+    current_time = time.time()
+    elapsed = current_time - start_time
+    remaining_time = max(0, int(TOTAL_TIME - elapsed))
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            run = False
+
+        if not game_over:
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_pos = pygame.mouse.get_pos()
+                for rect in boxes:
+                    if rect.collidepoint(mouse_pos) and rect not in locked_boxes:
+                        selected_box = rect
+                        offset_x = rect.x - mouse_pos[0]
+                        offset_y = rect.y - mouse_pos[1]
+                        break
+
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if selected_box:
+                    snap_to_grid(selected_box, grid_positions, boxes, original_positions, locked_boxes)
+                    selected_box = None
+
+            elif event.type == pygame.MOUSEMOTION and selected_box:
+                mouse_pos = pygame.mouse.get_pos()
+                selected_box.x = mouse_pos[0] + offset_x
+                selected_box.y = mouse_pos[1] + offset_y
+
+    # Verificar fin del tiempo
+    if remaining_time == 0 and not game_won:
+        game_over = True
+
+    # Verificar si se completó el nivel
+    if not game_over and len(locked_boxes) == len(grid_positions):
+        if level < max_levels:
+            level += 1
+            grid_positions, boxes, original_positions, locked_boxes = start_level()
+            selected_box = None
+            offset_x = 0
+            offset_y = 0
+        else:
+            game_over = True
+            game_won = True
+
+    # Dibujar pantalla
+    screen.fill(BG_COLOR)
+
+    # Cronómetro
+    minutes = remaining_time // 60
+    seconds = remaining_time % 60
+    timer_text = font.render(f"Tiempo: {minutes:02}:{seconds:02}", True, TEXT_COLOR)
+    screen.blit(timer_text, (20, 20))
+
+    # Nivel
+    level_text = font.render(f"Nivel {level}", True, TEXT_COLOR)
+    screen.blit(level_text, (SCREEN_WIDTH - 150, 20))
+
+    # Tablero
+    pygame.draw.rect(screen, BOARD_BORDER_COLOR, (BOARD_X_OFFSET, BOARD_Y_OFFSET, BOARD_WIDTH, BOARD_HEIGHT), 4)
+
+    for pos in grid_positions:
+        grid_rect = pygame.Rect(pos[0], pos[1], CELL_SIZE, CELL_SIZE)
+        pygame.draw.rect(screen, GRID_COLOR, grid_rect, 2)
+
+    # Piezas
+    for rect in boxes:
+        pygame.draw.rect(screen, BOX_COLOR, rect)
+        pygame.draw.rect(screen, GRID_COLOR, rect, 2)
+
+    # Mensaje final
+    if game_over:
+        if game_won:
+            msg = "¡Has completado todos los niveles!"
+        else:
+            msg = "¡Tiempo agotado!"
+        end_text = big_font.render(msg, True, GAME_OVER_COLOR)
+        sub_text = font.render("Presiona la X para salir", True, TEXT_COLOR)
+        screen.blit(end_text, (SCREEN_WIDTH // 2 - end_text.get_width() // 2, SCREEN_HEIGHT // 2 - 60))
+        screen.blit(sub_text, (SCREEN_WIDTH // 2 - sub_text.get_width() // 2, SCREEN_HEIGHT // 2 + 10))
+
+    pygame.display.flip()
+
+pygame.quit()
